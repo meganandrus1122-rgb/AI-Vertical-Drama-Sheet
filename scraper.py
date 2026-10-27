@@ -62,7 +62,7 @@ def append_to_sheet(client, rows):
             print(f"Successfully appended {len(sanitized_rows)} rows to the Google Sheet.")
         else:
             print("No new rows to append.")
-    except Exception as e:
+    except gspread.GSpreadException as e:
         print(f"Error appending to Google Sheets: {e}")
 
 def main():
