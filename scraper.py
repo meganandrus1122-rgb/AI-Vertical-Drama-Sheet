@@ -2,7 +2,9 @@ import os
 import json
 import feedparser
 import gspread
+import gspread.exceptions
 from google.oauth2.service_account import Credentials
+import google.auth.exceptions
 import datetime
 
 # Configuration
@@ -26,7 +28,7 @@ def get_google_sheets_client():
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         return client
-    except Exception as e:
+    except (ValueError, google.auth.exceptions.GoogleAuthError, gspread.exceptions.GSpreadException) as e:
         print(f"Error authenticating with Google Sheets: {e}")
         return None
 
