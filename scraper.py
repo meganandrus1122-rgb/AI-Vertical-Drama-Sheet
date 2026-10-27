@@ -8,7 +8,11 @@ import google.auth.exceptions
 import datetime
 
 # Configuration
-RSS_URL = 'https://www.reddit.com/r/shortdrama/search.rss?q=AI&sort=new'
+RSS_URLS = [
+    'https://www.reddit.com/r/shortdrama/search.rss?q=AI&sort=new',
+    'https://www.reddit.com/r/Vertical_Dramas/new.rss',
+    'https://www.reddit.com/r/nsfw_Vertical_AI/new.rss'
+]
 SHEET_ID = '1W07Fdlfj0HRPvqSna04b956xlestkLCZboKKyvWqxC4'
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
@@ -64,11 +68,14 @@ def append_to_sheet(client, rows):
         print(f"Error appending to Google Sheets: {e}")
 
 def main():
-    entries = fetch_reddit_rss(RSS_URL)
-    print(f"Found {len(entries)} entries in the RSS feed.")
+    all_entries = []
+    for url in RSS_URLS:
+        entries = fetch_reddit_rss(url)
+        print(f"Found {len(entries)} entries in {url}")
+        all_entries.extend(entries)
     
     rows_to_append = []
-    for entry in entries:
+    for entry in all_entries:
         title = entry.title if hasattr(entry, 'title') else 'No Title'
         link = entry.link if hasattr(entry, 'link') else 'No Link'
         genre = extract_genre(entry)
