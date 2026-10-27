@@ -37,10 +37,8 @@ def fetch_reddit_rss(url):
 
 def extract_genre(entry):
     # Try to extract genre from tags/categories if present
-    if hasattr(entry, 'tags'):
-        tags = [tag.term for tag in entry.tags]
-        if tags:
-            return ", ".join(tags)
+    if hasattr(entry, 'tags') and entry.tags:
+        return ", ".join(tag.term for tag in entry.tags)
     return "N/A"
 
 def append_to_sheet(client, rows):
