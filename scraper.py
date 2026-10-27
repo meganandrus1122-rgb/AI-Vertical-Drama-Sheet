@@ -72,7 +72,11 @@ def main():
         rows_to_append.append(row)
         
         # Log to console for verification
-        print(f"Scraped: {title} | {link} | {genre} | {date}")
+        safe_title = str(title).replace('\n', '\\n').replace('\r', '\\r')
+        safe_link = str(link).replace('\n', '\\n').replace('\r', '\\r')
+        safe_genre = str(genre).replace('\n', '\\n').replace('\r', '\\r')
+        safe_date = str(date).replace('\n', '\\n').replace('\r', '\\r')
+        print(f"Scraped: {safe_title} | {safe_link} | {safe_genre} | {safe_date}")
         
     client = get_google_sheets_client()
     if client:
