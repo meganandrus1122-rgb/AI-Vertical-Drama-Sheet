@@ -62,11 +62,13 @@ def main():
     print(f"Found {len(entries)} entries in the RSS feed.")
     
     rows_to_append = []
+    # Pre-calculate fallback date to avoid redundant calculations in the loop
+    fallback_date = datetime.datetime.utcnow().isoformat()
     for entry in entries:
         title = entry.title if hasattr(entry, 'title') else 'No Title'
         link = entry.link if hasattr(entry, 'link') else 'No Link'
         genre = extract_genre(entry)
-        date = entry.published if hasattr(entry, 'published') else datetime.datetime.utcnow().isoformat()
+        date = entry.published if hasattr(entry, 'published') else fallback_date
         
         row = [title, link, genre, date]
         rows_to_append.append(row)
