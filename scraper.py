@@ -43,6 +43,11 @@ def extract_genre(entry):
             return ", ".join(tags)
     return "N/A"
 
+def sanitize_for_sheets(value):
+    if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@'):
+        return "'" + value
+    return value
+
 def append_to_sheet(client, rows):
     if not client:
         return
@@ -50,8 +55,9 @@ def append_to_sheet(client, rows):
     try:
         sheet = client.open_by_key(SHEET_ID).sheet1
         if rows:
-            sheet.append_rows(rows)
-            print(f"Successfully appended {len(rows)} rows to the Google Sheet.")
+            sanitized_rows = [[sanitize_for_sheets(item) for item in row] for row in rows]
+            sheet.append_rows(sanitized_rows)
+            print(f"Successfully appended {len(sanitized_rows)} rows to the Google Sheet.")
         else:
             print("No new rows to append.")
     except Exception as e:
