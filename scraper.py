@@ -86,14 +86,21 @@ def extract_genre(entry):
         
     return "Unknown/Other"
 
+
+def sanitize_for_sheets(value):
+    if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@'):
+        return "'" + value
+    return value
+
 def append_to_sheet(client, rows):
     if not client:
         return
     try:
         sheet = client.open_by_key(SHEET_ID).sheet1
         if rows:
-            sheet.append_rows(rows)
-            print(f"Successfully appended {len(rows)} rows to the Google Sheet.")
+            sanitized_rows = [[sanitize_for_sheets(item) for item in row] for row in rows]
+            sheet.append_rows(sanitized_rows)
+            print(f"Successfully appended {len(sanitized_rows)} rows to the Google Sheet.")
         else:
             print("No new rows to append.")
     except Exception as e:
@@ -124,9 +131,9 @@ def main():
             if hasattr(entry, 'published_parsed') and entry.published_parsed:
                 date = time.strftime('%Y-%m-%d', entry.published_parsed)
             else:
-                date = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+                date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
         except:
-            date = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+            date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
         
         # Order: Title, Link, Genre, Date Added
         row = [title, link, genre, date]
