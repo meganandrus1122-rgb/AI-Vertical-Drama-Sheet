@@ -5,6 +5,7 @@ import gspread
 import urllib.request
 from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
+from google import genai
 import datetime
 import time
 import re
@@ -70,21 +71,62 @@ def extract_link(entry):
 
     return reddit_link
 
-def extract_genre(entry):
+def get_gemini_client():
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        print("Warning: GEMINI_API_KEY not found. Using fallback genre extraction.")
+        return None
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"Error initializing Gemini client: {e}")
+        return None
+
+
+def extract_genre_fallback(entry):
     found_genres = set()
     text_to_search = (getattr(entry, 'title', '') + " " + getattr(entry, 'summary', '')).lower()
-
     if hasattr(entry, 'content') and entry.content:
         text_to_search += " " + entry.content[0].value.lower()
-
     for keyword in GENRE_KEYWORDS:
         if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search):
             found_genres.add(keyword.title())
-
     if found_genres:
         return ", ".join(sorted(found_genres))
-
     return "Unknown/Other"
+
+def extract_genre(entry, gemini_client):
+    if not gemini_client:
+        return extract_genre_fallback(entry)
+
+    text_to_search = getattr(entry, 'title', '') + "\n" + getattr(entry, 'summary', '')
+    if hasattr(entry, 'content') and entry.content:
+        soup = BeautifulSoup(entry.content[0].value, 'html.parser')
+        text_to_search += "\n" + soup.get_text()
+
+    prompt = (
+        "Review this Reddit post about an AI vertical drama. "
+        "Analyze the title and content to determine the most accurate genre trope "
+        "(e.g., Mafia, CEO, Alpha, Werewolf, Billionaire, Romance, Revenge, Contract Marriage). "
+        "Return ONLY the primary genre names separated by commas (e.g. 'Mafia, Romance'). "
+        "If you cannot determine a genre, return 'Unknown/Other'. "
+        f"Text:\n{text_to_search}"
+    )
+
+    try:
+        response = gemini_client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt,
+        )
+        genre = response.text.strip()
+        # Clean up in case the model added extra quotes or periods
+        genre = genre.strip('"').strip("'").strip('.')
+        if not genre:
+            return extract_genre_fallback(entry)
+        return genre
+    except Exception as e:
+        print(f"Gemini extraction failed: {e}. Using fallback.")
+        return extract_genre_fallback(entry)
 
 
 def sanitize_for_sheets(value):
@@ -107,6 +149,7 @@ def append_to_sheet(client, rows):
         print(f"Error appending to Google Sheets: {e}")
 
 def main():
+    gemini_client = get_gemini_client()
     all_entries = []
 
     for url in RSS_URLS:
@@ -124,7 +167,7 @@ def main():
     for entry in all_entries:
         title = entry.title if hasattr(entry, 'title') else 'No Title'
         link = extract_link(entry)
-        genre = extract_genre(entry)
+        genre = extract_genre(entry, gemini_client)
 
         try:
             # Parse the published string if it exists to clean it up
