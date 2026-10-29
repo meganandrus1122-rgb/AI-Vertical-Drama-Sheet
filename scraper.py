@@ -18,7 +18,7 @@ SHEET_ID = '1W07Fdlfj0HRPvqSna04b956xlestkLCZboKKyvWqxC4'
 USER_AGENT = 'python:ai-vertical-drama-scraper:v1.3 (by /u/meganandrus)'
 
 GENRE_KEYWORDS = [
-    'mafia', 'ceo', 'alpha', 'werewolf', 'billionaire', 'revenge', 
+    'mafia', 'ceo', 'alpha', 'werewolf', 'billionaire', 'revenge',
     'vampire', 'contract marriage', 'arranged marriage', 'enemies to lovers',
     'boss', 'pregnant', 'secret baby', 'rejection', 'mate', 'luna',
     'sweet', 'angst', 'time travel', 'rebirth', 'reincarnation'
@@ -58,7 +58,7 @@ def fetch_reddit_rss(url):
 
 def extract_link(entry):
     reddit_link = entry.link if hasattr(entry, 'link') else 'No Link'
-    
+
     if hasattr(entry, 'content') and entry.content:
         html_content = entry.content[0].value
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -67,23 +67,23 @@ def extract_link(entry):
             # Exclude standard Reddit links from being identified as the drama link
             if 'reddit.com' not in href and 'redd.it' not in href:
                 return href # Return the first external link found
-                
+
     return reddit_link
 
 def extract_genre(entry):
     found_genres = set()
     text_to_search = (getattr(entry, 'title', '') + " " + getattr(entry, 'summary', '')).lower()
-    
+
     if hasattr(entry, 'content') and entry.content:
         text_to_search += " " + entry.content[0].value.lower()
-        
+
     for keyword in GENRE_KEYWORDS:
         if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search):
             found_genres.add(keyword.title())
-            
+
     if found_genres:
         return ", ".join(sorted(found_genres))
-        
+
     return "Unknown/Other"
 
 
@@ -108,39 +108,39 @@ def append_to_sheet(client, rows):
 
 def main():
     all_entries = []
-    
+
     for url in RSS_URLS:
         entries = fetch_reddit_rss(url)
         print(f"Found {len(entries)} entries in {url}")
         all_entries.extend(entries)
         time.sleep(2)
-        
+
     search_url = 'https://www.reddit.com/r/shortdrama/search.rss?q=AI&sort=new'
     search_entries = fetch_reddit_rss(search_url)
     print(f"Found {len(search_entries)} entries in {search_url}")
     all_entries.extend(search_entries)
-    
+
     rows_to_append = []
     for entry in all_entries:
         title = entry.title if hasattr(entry, 'title') else 'No Title'
         link = extract_link(entry)
         genre = extract_genre(entry)
-        
+
         try:
             # Parse the published string if it exists to clean it up
             if hasattr(entry, 'published_parsed') and entry.published_parsed:
                 date = time.strftime('%Y-%m-%d', entry.published_parsed)
             else:
                 date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
-        except:
+        except Exception:
             date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
-        
+
         # Order: Title, Link, Genre, Date Added
         row = [title, link, genre, date]
         rows_to_append.append(row)
-        
+
         print(f"Scraped: {title} | {link} | {genre} | {date}")
-        
+
     client = get_google_sheets_client()
     if client:
         append_to_sheet(client, rows_to_append)
