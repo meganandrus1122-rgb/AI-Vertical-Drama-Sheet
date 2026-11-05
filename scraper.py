@@ -57,8 +57,9 @@ def fetch_reddit_rss(url):
         print(f"Error fetching {url}: {e}")
         return []
 
-def extract_link(entry):
-    reddit_link = entry.link if hasattr(entry, 'link') else 'No Link'
+def extract_links(entry):
+    source_link = entry.link if hasattr(entry, 'link') else 'No Link'
+    watch_link = ''
 
     if hasattr(entry, 'content') and entry.content:
         html_content = entry.content[0].value
@@ -67,9 +68,10 @@ def extract_link(entry):
             href = a['href']
             # Exclude standard Reddit links from being identified as the drama link
             if 'reddit.com' not in href and 'redd.it' not in href:
-                return href # Return the first external link found
+                watch_link = href
+                break # Return the first external link found as watch link
 
-    return reddit_link
+    return source_link, watch_link
 
 def get_gemini_client():
     api_key = os.environ.get('GEMINI_API_KEY')
@@ -83,7 +85,7 @@ def get_gemini_client():
         return None
 
 
-def extract_genre_fallback(entry):
+def extract_fallback(entry):
     found_genres = set()
     text_to_search = (getattr(entry, 'title', '') + " " + getattr(entry, 'summary', '')).lower()
     if hasattr(entry, 'content') and entry.content:
@@ -91,13 +93,22 @@ def extract_genre_fallback(entry):
     for keyword in GENRE_KEYWORDS:
         if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search):
             found_genres.add(keyword.title())
-    if found_genres:
-        return ", ".join(sorted(found_genres))
-    return "Unknown/Other"
+    genre = ", ".join(sorted(found_genres)) if found_genres else "Unknown/Other"
 
-def extract_genre(entry, gemini_client):
+    title = getattr(entry, 'title', 'No Title')
+    is_valid = True
+    if 'link' in title.lower() and len(title) < 15:
+        is_valid = False
+
+    return {
+        "title": title,
+        "genre": genre,
+        "is_valid": is_valid
+    }
+
+def extract_gemini_data(entry, gemini_client):
     if not gemini_client:
-        return extract_genre_fallback(entry)
+        return extract_fallback(entry)
 
     text_to_search = getattr(entry, 'title', '') + "\n" + getattr(entry, 'summary', '')
     if hasattr(entry, 'content') and entry.content:
@@ -105,11 +116,17 @@ def extract_genre(entry, gemini_client):
         text_to_search += "\n" + soup.get_text()
 
     prompt = (
-        "Review this Reddit post about an AI vertical drama. "
-        "Analyze the title and content to determine the most accurate genre trope "
-        "(e.g., Mafia, CEO, Alpha, Werewolf, Billionaire, Romance, Revenge, Contract Marriage). "
-        "Return ONLY the primary genre names separated by commas (e.g. 'Mafia, Romance'). "
-        "If you cannot determine a genre, return 'Unknown/Other'. "
+        "Review this Reddit post about an AI vertical drama or short drama. "
+        "Analyze the title and content. "
+        "1. Extract the clean, core title of the drama. Remove any Reddit tags (like [NSFW], (OC), etc.) or extraneous text like 'Does anyone know this one?'. "
+        "2. Determine the most accurate genre trope (e.g., Mafia, CEO, Alpha, Werewolf, Billionaire, Romance, Revenge, Contract Marriage). If you cannot determine a genre, return 'Unknown/Other'. "
+        "3. Determine if this post is a valid drama entry or just a meta-post/question (e.g. 'Link?', 'Help find this'). If it is just asking for a link or help and doesn't actually share a drama, mark it invalid.\n\n"
+        "Return the result AS A VALID JSON OBJECT EXACTLY like this (do not include markdown codeblocks or any other text):\n"
+        "{\n"
+        '  "title": "Cleaned Drama Title",\n'
+        '  "genre": "Mafia, Romance",\n'
+        '  "is_valid": true\n'
+        "}\n\n"
         f"Text:\n{text_to_search}"
     )
 
@@ -118,21 +135,64 @@ def extract_genre(entry, gemini_client):
             model='gemini-1.5-flash',
             contents=prompt,
         )
-        genre = response.text.strip()
-        # Clean up in case the model added extra quotes or periods
-        genre = genre.strip('"').strip("'").strip('.')
-        if not genre:
-            return extract_genre_fallback(entry)
-        return genre
+        result_text = response.text.strip()
+        # Handle markdown blocks if present
+        if result_text.startswith('```json'):
+            result_text = result_text[7:]
+        elif result_text.startswith('```'):
+            result_text = result_text[3:]
+        if result_text.endswith('```'):
+            result_text = result_text[:-3]
+
+        result_text = result_text.strip()
+
+        data = json.loads(result_text)
+        return {
+            "title": data.get("title", getattr(entry, 'title', 'No Title')),
+            "genre": data.get("genre", "Unknown/Other"),
+            "is_valid": data.get("is_valid", True)
+        }
     except Exception as e:
         print(f"Gemini extraction failed: {e}. Using fallback.")
-        return extract_genre_fallback(entry)
+        return extract_fallback(entry)
 
 
 def sanitize_for_sheets(value):
     if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@'):
         return "'" + value
     return value
+
+def get_existing_data(client):
+    if not client:
+        return set(), set()
+    try:
+        sheet = client.open_by_key(SHEET_ID).sheet1
+        # Use get_all_values to avoid issues with duplicate or missing headers
+        records = sheet.get_all_values()
+        if not records:
+            return set(), set()
+
+        headers = records[0]
+        try:
+            title_idx = headers.index('Title')
+            source_link_idx = headers.index('Source Link')
+        except ValueError:
+            print("Warning: Could not find 'Title' or 'Source Link' columns in sheet. Duplicate checking may fail.")
+            return set(), set()
+
+        existing_titles = set()
+        existing_source_links = set()
+
+        for row in records[1:]:
+            if len(row) > title_idx and row[title_idx]:
+                existing_titles.add(row[title_idx].lower().strip())
+            if len(row) > source_link_idx and row[source_link_idx]:
+                existing_source_links.add(row[source_link_idx].lower().strip())
+
+        return existing_titles, existing_source_links
+    except Exception as e:
+        print(f"Error fetching existing data from Google Sheets: {e}")
+        return set(), set()
 
 def append_to_sheet(client, rows):
     if not client:
@@ -149,6 +209,9 @@ def append_to_sheet(client, rows):
         print(f"Error appending to Google Sheets: {e}")
 
 def main():
+    client = get_google_sheets_client()
+    existing_titles, existing_source_links = get_existing_data(client)
+
     gemini_client = get_gemini_client()
     all_entries = []
 
@@ -165,9 +228,27 @@ def main():
 
     rows_to_append = []
     for entry in all_entries:
-        title = entry.title if hasattr(entry, 'title') else 'No Title'
-        link = extract_link(entry)
-        genre = extract_genre(entry, gemini_client)
+        source_link, watch_link = extract_links(entry)
+        raw_title = getattr(entry, 'title', 'No Title')
+
+        # Fast fail if source link is already in sheet
+        if source_link.lower().strip() in existing_source_links:
+            print(f"Skipping duplicate source link: {source_link}")
+            continue
+
+        gemini_data = extract_gemini_data(entry, gemini_client)
+        if not gemini_data.get('is_valid', True):
+            print(f"Skipping invalid entry: {raw_title}")
+            continue
+
+        title = gemini_data.get('title', 'No Title')
+
+        # Check again using the cleaned title
+        if title.lower().strip() in existing_titles:
+            print(f"Skipping duplicate title: {title}")
+            continue
+
+        genre = gemini_data.get('genre', 'Unknown/Other')
 
         try:
             # Parse the published string if it exists to clean it up
@@ -178,11 +259,22 @@ def main():
         except Exception:
             date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
 
-        # Order: Title, Link, Genre, Date Added
-        row = [title, link, genre, date]
+        # Headers: Title, Watch Link, Source Link, Link Status, Genre, Rating, Reactions & Notes, Date Added, Platform, Watch Status
+        row = [
+            title,           # A: Title
+            watch_link,      # B: Watch Link
+            source_link,     # C: Source Link
+            'Searching / Requesting' if not watch_link else 'Ready to Watch', # D: Link Status
+            genre,           # E: Genre
+            '',              # F: Rating
+            '',              # G: Reactions & Notes
+            date,            # H: Date Added
+            'Reddit',        # I: Platform
+            'Plan to Watch'  # J: Watch Status
+        ]
         rows_to_append.append(row)
 
-        print(f"Scraped: {title} | {link} | {genre} | {date}")
+        print(f"Scraped: {title} | {source_link} | {watch_link} | {genre} | {date}")
 
     client = get_google_sheets_client()
     if client:
