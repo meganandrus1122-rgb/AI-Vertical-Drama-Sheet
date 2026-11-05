@@ -25,6 +25,8 @@ GENRE_KEYWORDS = [
     'sweet', 'angst', 'time travel', 'rebirth', 'reincarnation'
 ]
 
+GENRE_REGEX = re.compile(r'\b(' + '|'.join(re.escape(k) for k in GENRE_KEYWORDS) + r')\b')
+
 def get_google_sheets_client():
     credentials_json = os.environ.get('GCP_SERVICE_ACCOUNT_JSON')
     if not credentials_json:
@@ -86,13 +88,12 @@ def get_gemini_client():
 
 
 def extract_fallback(entry):
-    found_genres = set()
     text_to_search = (getattr(entry, 'title', '') + " " + getattr(entry, 'summary', '')).lower()
     if hasattr(entry, 'content') and entry.content:
         text_to_search += " " + entry.content[0].value.lower()
-    for keyword in GENRE_KEYWORDS:
-        if re.search(r'\b' + re.escape(keyword) + r'\b', text_to_search):
-            found_genres.add(keyword.title())
+
+    # ⚡ Bolt: Using a single compiled regex reduces search time significantly compared to looping over 21 individual regexes
+    found_genres = {m.title() for m in GENRE_REGEX.findall(text_to_search)}
     genre = ", ".join(sorted(found_genres)) if found_genres else "Unknown/Other"
 
     title = getattr(entry, 'title', 'No Title')
