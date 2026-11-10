@@ -1,0 +1,3 @@
+## 2023-10-27 - [Optimization] Replace BeautifulSoup with Regex for Targeted Link Extraction
+**Learning:** For simple, targeted HTML attribute extractions (like grabbing the first non-Reddit `href`), using a well-crafted, pre-compiled regular expression provides a massive performance boost over parsing the entire DOM with a library like BeautifulSoup (up to 5000x faster in benchmarks).
+**Action:** When extracting simple, isolated data points from HTML where full structural understanding isn't necessary, evaluate if a pre-compiled regex can safely and accurately do the job to minimize CPU overhead.

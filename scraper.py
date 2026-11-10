@@ -9,6 +9,7 @@ from google import genai
 import datetime
 import time
 import re
+import html
 
 # Configuration
 RSS_URLS = [
@@ -29,6 +30,11 @@ GENRE_KEYWORDS = [
 # Sorting by length descending ensures longer phrases (like "contract marriage")
 # are matched before shorter substrings, though not strictly required given \b boundaries here
 GENRE_REGEX = re.compile(r'\b(' + '|'.join(map(re.escape, sorted(GENRE_KEYWORDS, key=len, reverse=True))) + r')\b')
+
+# Pre-compiled regex for extracting the first non-Reddit link for watch_link
+# It matches <a tags, allowing spaces, and captures the href attribute
+# The negative lookahead (?![^"\']*(?:reddit\.com|redd\.it)) ensures we skip standard reddit links
+LINK_REGEX = re.compile(r'<a\s+(?:[^>]*?\s+)?href=["\'](?![^"\']*(?:reddit\.com|redd\.it))([^"\']+)["\']', re.IGNORECASE)
 
 def get_google_sheets_client():
     credentials_json = os.environ.get('GCP_SERVICE_ACCOUNT_JSON')
@@ -68,13 +74,12 @@ def extract_links(entry):
 
     if hasattr(entry, 'content') and entry.content:
         html_content = entry.content[0].value
-        soup = BeautifulSoup(html_content, 'html.parser')
-        for a in soup.find_all('a', href=True):
-            href = a['href']
-            # Exclude standard Reddit links from being identified as the drama link
-            if 'reddit.com' not in href and 'redd.it' not in href:
-                watch_link = href
-                break # Return the first external link found as watch link
+
+        # Optimization: Use pre-compiled regex instead of BeautifulSoup for simple targeted extraction
+        # This avoids full DOM parsing and significantly reduces CPU overhead per entry
+        match = LINK_REGEX.search(html_content)
+        if match:
+            watch_link = html.unescape(match.group(1))
 
     return source_link, watch_link
 
